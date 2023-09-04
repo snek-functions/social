@@ -1,0 +1,110 @@
+datasource db {
+    provider = "postgresql"
+
+    url = env("DATABASE_URL")
+}
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+model Activity {
+    id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+    type      String // You can define different types of activities (e.g., "post", "star", "follow")
+    createdAt DateTime @default(now())
+
+    // Relationships
+    profile   Profile @relation(fields: [profileId], references: [id])
+    profileId String  @db.Uuid
+
+    post     Post?   @relation(fields: [postId], references: [id])
+    postId   String? @db.Uuid
+    star     Star?   @relation(fields: [starId], references: [id])
+    starId   String? @db.Uuid
+    follow   Follow? @relation(fields: [followId], references: [id])
+    followId String? @db.Uuid
+}
+
+model ProfileStatistic {
+    id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+    createdAt DateTime @default(now()) @db.Date
+
+    profileViews Int @default(0)
+
+    // Relationships
+    profile   Profile @relation(fields: [profileId], references: [id])
+    profileId String  @db.Uuid
+
+    @@unique([profileId, createdAt])
+}
+
+model Profile {
+    id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+    userId           String             @unique @db.Uuid
+    posts            Post[]             @relation("CreatedByUser")
+    followers        Follow[]           @relation("Followed")
+    following        Follow[]           @relation("Follower")
+    starredPosts     Star[]             @relation("Starrer")
+    bio              String?
+    createdAt        DateTime           @default(now())
+    updatedAt        DateTime           @updatedAt
+    featuredPosts    Post[]             @relation("FeaturedPosts")
+    Activity         Activity[]
+    ProfileStatistic ProfileStatistic[]
+}
+
+model PostStatistic {
+    id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+    createdAt DateTime @default(now()) @db.Date
+
+    postViews Int @default(0)
+    // Add more fields for other post-related statistics as needed
+
+    // Relationships
+    post   Post   @relation(fields: [postId], references: [id])
+    postId String @db.Uuid
+
+    @@unique([postId, createdAt])
+}
+
+model Post {
+    id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+    title      String
+    avatarURL  String?
+    summary    String?
+    content    String?
+    profile    Profile   @relation("CreatedByUser", fields: [profileId], references: [id])
+    profileId  String    @db.Uuid
+    stars      Star[]    @relation("Star")
+    createdAt  DateTime  @default(now())
+    updatedAt  DateTime  @updatedAt
+    featuredBy Profile[] @relation("FeaturedPosts")
+
+    privacy       String          @default("private")
+    Activity      Activity[]
+    PostStatistic PostStatistic[]
+}
+
+model Star {
+    id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+    postId    String     @db.Uuid
+    profile   Profile    @relation("Starrer", fields: [profileId], references: [id])
+    profileId String     @db.Uuid
+    post      Post       @relation("Star", fields: [postId], references: [id])
+    createdAt DateTime   @default(now())
+    Activity  Activity[]
+
+    @@unique([postId, profileId])
+}
+
+model Follow {
+    id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+    follower   Profile    @relation("Follower", fields: [followerId], references: [id])
+    followerId String     @db.Uuid
+    followed   Profile    @relation("Followed", fields: [followedId], references: [id])
+    followedId String     @db.Uuid
+    createdAt  DateTime   @default(now())
+    Activity   Activity[]
+
+    @@unique([followerId, followedId])
+}

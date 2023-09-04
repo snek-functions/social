@@ -26,9 +26,11 @@
     }
   },
   "dependencies": {
+    "@prisma/client": "^5.2.0",
     "@snek-at/function": "*",
     "@snek-at/function-cli": "*",
-    "@snek-at/function-server": "*"
+    "@snek-at/function-server": "*",
+    "prisma": "^5.2.0"
   },
   "devDependencies": {
     "commitizen": "^4.2.5",
@@ -37,6 +39,10 @@
   },
   "scripts": {
     "develop": "yarn sf develop",
-    "build": "yarn sf build"
+    "build": "yarn sf build",
+    "migrate": "prisma migrate dev"
+  },
+  "prisma": {
+    "schema": "prisma/schema.prisma"
   }
 }

@@ -1,16 +1,28 @@
 import { defineService, logger } from "@snek-at/function";
-import { UserService } from "./services/user.service";
+
+import { profile } from "./services/profile.service";
+import { post } from "./services/post.service";
 
 export default defineService(
   {
     Query: {
-      allUser: UserService.allUser,
-      user: UserService.user,
+      profile: profile.find,
+      allProfile: profile.findAll,
+      post: post.find,
+      allPost: post.findAll,
+      allPostTrending: post.findTrending,
     },
     Mutation: {
-      userCreate: UserService.userCreate,
-      userUpdate: UserService.userUpdate,
-      userDelete: UserService.userDelete,
+      profileCreate: profile.create,
+      profileUpdate: profile.update,
+      profileDelete: profile.delete,
+      profileFollow: profile.follow,
+      profileUnfollow: profile.unfollow,
+      postCreate: post.create,
+      postUpdate: post.update,
+      postDelete: post.delete,
+      postStar: post.star,
+      postUnstar: post.unstar,
     },
   },
   {
