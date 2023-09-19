@@ -8,6 +8,7 @@ import {
   activityRepository,
 } from "../repositories/Activity.repository";
 import {
+  Language,
   PostData,
   PostRepository,
   PostUpdateData,
@@ -22,8 +23,10 @@ import {
   ProfileRepository,
   profileRepository,
 } from "../repositories/Profile.repository";
+import { AuthenticationError, NotFoundError } from "../errors/general.errors";
+import { ConnectionArguments } from "@devoxa/prisma-relay-cursor-connection";
 
-export class Post {
+export class PostService {
   private repository: {
     star: StarRepository;
     profile: ProfileRepository;
@@ -43,12 +46,10 @@ export class Post {
   create = withContext((context) => async (values: PostData) => {
     const userId = context.req.headers["x-forwarded-user"] as string;
 
-    const profileId = await this.repository.profile.profileIdByUserId(userId);
-
-    const post = await this.repository.post.create(profileId, values);
+    const post = await this.repository.post.create(userId, values);
 
     await this.repository.activity.createBlogActivity(
-      profileId,
+      userId,
       post.id,
       "create"
     );
@@ -80,14 +81,18 @@ export class Post {
     await this.repository.post.delete(postId);
   });
 
-  find = withContext((context) => async (postId: string) => {
-    const post = await this.repository.post.find(postId);
+  find = withContext((context) => async (postId?: string, slug?: string) => {
+    const post = await this.repository.post.find(postId, slug);
 
     const userId = context.req.headers["x-forwarded-user"] as string;
-    const profileId = await this.repository.profile.profileIdByUserId(userId);
 
-    if (post && post.profileId !== profileId) {
-      await this.repository.post.registerView(postId);
+    if (post && post.profileId !== userId) {
+      await this.repository.post.registerView(post.id);
+
+      // Return only public posts if user is not the owner of the profile
+      if (post.privacy !== "PUBLIC") {
+        throw new NotFoundError("Post not found");
+      }
     }
 
     return post;
@@ -95,40 +100,80 @@ export class Post {
 
   findAll = withContext(
     (context) =>
-      async (filters?: {
-        profileId?: string;
-        privacy?: Privacy;
-        limit?: number;
-        offset?: number;
-      }) => {
-        const userId = context.req.headers["x-forwarded-user"] as string;
+      async (
+        after: ConnectionArguments["after"],
+        before: ConnectionArguments["before"],
+        first: ConnectionArguments["first"],
+        last: ConnectionArguments["last"],
+        filters?: {
+          userId?: string;
+          privacy?: Privacy;
+          language?: Language;
+          query?: string;
+        }
+      ) => {
+        // Default privacy is public
+        filters = {
+          privacy: "PUBLIC",
+          ...filters,
+        };
+
+        const userId = context.req.headers["x-forwarded-user"] as
+          | string
+          | undefined;
+
+        if (!userId && filters?.privacy !== "PUBLIC") {
+          throw new AuthenticationError(
+            "You need to be logged in to view non-public posts"
+          );
+        }
 
         filters = {
           ...filters,
         };
 
         try {
-          const profileId = await this.repository.profile.profileIdByUserId(
-            userId
-          );
-
-          if (filters.profileId && filters.profileId !== profileId) {
-            // Set privacy to public if user is not the owner of the profile
-            filters.privacy = "public";
+          if (!userId || (filters.userId && filters.userId !== userId)) {
+            // Set privacy to public if user is not the owner of the profile or not logged in
+            filters.privacy = "PUBLIC";
           }
         } catch (e) {
           // Set privacy to public if user is not logged in
-          filters.privacy = "public";
+          filters.privacy = "PUBLIC";
         }
 
-        const posts = await this.repository.post.findAll(filters);
+        const posts = await this.repository.post.findAll(
+          after,
+          before,
+          first,
+          last,
+          filters
+        );
 
         return posts;
       }
   );
 
-  findTrending = async (filters?: { limit?: number; offset?: number }) => {
-    const posts = await this.repository.post.findTrending(30, filters || {});
+  findTrending = async (
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"],
+    filters?: {
+      limit?: number;
+      offset?: number;
+      profileId?: string;
+      language?: Language;
+    }
+  ) => {
+    const posts = await this.repository.post.findTrending(
+      30,
+      filters || {},
+      after,
+      before,
+      first,
+      last
+    );
 
     return posts;
   };
@@ -136,18 +181,16 @@ export class Post {
   star = withContext((context) => async (postId: string) => {
     const userId = context.req.headers["x-forwarded-user"] as string;
 
-    const profileId = await this.repository.profile.profileIdByUserId(userId);
-
     const isAlreadyStarred = await this.repository.star.checkStar(
-      profileId,
+      userId,
       postId
     );
 
     if (!isAlreadyStarred) {
-      const starred = await this.repository.star.star(profileId, postId);
+      const starred = await this.repository.star.star(userId, postId);
 
       await this.repository.activity.createBlogStarActivity(
-        profileId,
+        userId,
         postId,
         "star"
       );
@@ -160,18 +203,17 @@ export class Post {
 
   unstar = withContext((context) => async (postId: string) => {
     const userId = context.req.headers["x-forwarded-user"] as string;
-    const profileId = await this.repository.profile.profileIdByUserId(userId);
 
     const isAlreadyStarred = await this.repository.star.checkStar(
-      profileId,
+      userId,
       postId
     );
 
     if (isAlreadyStarred) {
-      const starred = await this.repository.star.unstar(profileId, postId);
+      const starred = await this.repository.star.unstar(userId, postId);
 
       await this.repository.activity.createBlogStarActivity(
-        profileId,
+        userId,
         postId,
         "unstar"
       );
@@ -183,4 +225,4 @@ export class Post {
   });
 }
 
-export const post = new Post();
+export const post = new PostService();

@@ -1,7 +1,7 @@
 import { defineService, logger } from "@snek-at/function";
 
-import { profile } from "./services/profile.service";
 import { post } from "./services/post.service";
+import { profile } from "./services/profile.service";
 
 export default defineService(
   {

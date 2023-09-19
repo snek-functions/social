@@ -1,13 +1,18 @@
 import * as PQ from "@prisma/client";
 import { prisma } from "../prisma";
 import { Post } from "./Post.repository";
+import { NotFoundError } from "../errors/general.errors";
+import {
+  ConnectionArguments,
+  findManyCursorConnection,
+} from "@devoxa/prisma-relay-cursor-connection";
 
 export class Profile implements PQ.Profile {
   id: string;
-  userId: string;
   bio: string | null;
   createdAt: Date;
   updatedAt: Date;
+  language: PQ.$Enums.Language;
 
   constructor(data: PQ.Profile) {
     for (const key in data) {
@@ -28,93 +33,160 @@ export class Profile implements PQ.Profile {
     return posts ? posts.posts.map((post) => new Post(post)) : [];
   }
 
-  async starredPosts() {
-    const starredPosts = await prisma.profile.findUnique({
-      where: {
-        id: this.id,
-      },
-      select: {
-        starredPosts: {
-          select: {
+  async starredPosts(
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"]
+  ) {
+    return findManyCursorConnection(
+      async (args: any) => {
+        const qs = await prisma.star.findMany({
+          where: {
+            profileId: this.id,
+          },
+          include: {
             post: true,
-            createdAt: true,
           },
-        },
-      },
-    });
-
-    return starredPosts
-      ? starredPosts.starredPosts.map(({ post, createdAt }) => {
-          return {
-            post: () => new Post(post),
-            createdAt,
-          };
-        })
-      : [];
-  }
-
-  async followers() {
-    const followers = await prisma.profile.findUnique({
-      where: {
-        id: this.id,
-      },
-      select: {
-        followers: {
-          select: {
-            follower: true,
-          },
-        },
-      },
-    });
-
-    return followers
-      ? followers.followers.map(
-          (followerConnection) => new Profile(followerConnection.follower)
-        )
-      : [];
-  }
-
-  async following() {
-    const following = await prisma.profile.findUnique({
-      where: {
-        id: this.id,
-      },
-      select: {
-        following: {
-          select: {
-            followed: true,
-          },
-        },
-      },
-    });
-
-    return following
-      ? following.following.map(
-          (followingConnection) => new Profile(followingConnection.followed)
-        )
-      : [];
-  }
-
-  async activity(): Promise<
-    {
-      createdAt: string;
-      type: string;
-
-      post?: Post | null;
-      follow?: {
-        createdAt: Date;
-        followed: Profile;
-      };
-    }[]
-  > {
-    const activity = await prisma.profile.findUnique({
-      where: {
-        id: this.id,
-      },
-      select: {
-        Activity: {
           orderBy: {
             createdAt: "desc",
+          },
+          ...(args as {}),
+        });
+
+        return qs.map((star) => {
+          return {
+            post: () => new Post(star.post),
+            createdAt: star.createdAt,
+          };
+        });
+      },
+      () =>
+        prisma.star.count({
+          where: {
+            profileId: this.id,
+          },
+        }),
+      {
+        after,
+        before,
+        first,
+        last,
+      }
+    );
+  }
+
+  async followers(
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"],
+    filters?: { userId?: string }
+  ) {
+    try {
+      return findManyCursorConnection(
+        async (args: any) => {
+          const qs = await prisma.follow.findMany({
+            where: {
+              followedId: this.id,
+              followerId: filters?.userId,
+            },
+            include: {
+              follower: true,
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+            ...(args as {}),
+          });
+
+          return qs.map((follow) => {
+            return {
+              follower: () => new Profile(follow.follower),
+              createdAt: follow.createdAt,
+            };
+          });
+        },
+        () =>
+          prisma.follow.count({
+            where: {
+              followedId: this.id,
+              followerId: filters?.userId,
+            },
+          }),
+        {
+          after,
+          before,
+          first,
+          last,
+        }
+      );
+    } catch (error) {
+      throw new NotFoundError("Followers not found");
+    }
+  }
+
+  async following(
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"],
+    filters?: { userId?: string }
+  ) {
+    try {
+      return findManyCursorConnection(
+        async (args: any) => {
+          const qs = await prisma.follow.findMany({
+            where: {
+              followerId: this.id,
+              followedId: filters?.userId,
+            },
+            include: {
+              followed: true,
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+            ...(args as {}),
+          });
+
+          return qs.map((follow) => {
+            return {
+              followed: () => new Profile(follow.followed),
+              createdAt: follow.createdAt,
+            };
+          });
+        },
+        () =>
+          prisma.follow.count({
+            where: {
+              followerId: this.id,
+              followedId: filters?.userId,
+            },
+          }),
+        {
+          after,
+          before,
+          first,
+          last,
+        }
+      );
+    } catch (error) {
+      throw new NotFoundError("Following not found");
+    }
+  }
+
+  async activity(
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"]
+  ) {
+    return findManyCursorConnection(
+      async (args: any) => {
+        const qs = await prisma.activity.findMany({
+          where: {
+            profileId: this.id,
           },
           include: {
             post: true,
@@ -124,40 +196,39 @@ export class Profile implements PQ.Profile {
               },
             },
           },
-        },
-      },
-    });
+          orderBy: {
+            createdAt: "desc",
+          },
+          ...(args as {}),
+        });
 
-    return activity
-      ? activity.Activity.map(
-          ({
-            createdAt,
-            type,
-            post,
-            follow,
-          }: {
-            createdAt: Date;
-            type: string;
-            post: PQ.Post | null;
-            follow: {
-              createdAt: Date;
-              followed: PQ.Profile;
-            } | null;
-          }) => {
-            return {
-              createdAt: createdAt.toISOString(),
-              type,
-              post: post ? new Post(post) : null,
-              follow: follow
-                ? {
-                    createdAt: follow.createdAt,
-                    followed: new Profile(follow.followed),
-                  }
-                : undefined,
-            };
-          }
-        )
-      : ([] as any);
+        return qs.map((activty) => {
+          return {
+            createdAt: activty.createdAt.toISOString(),
+            type: activty.type,
+            post: activty.post ? new Post(activty.post) : null,
+            follow: activty.follow
+              ? {
+                  createdAt: activty.follow.createdAt,
+                  followed: new Profile(activty.follow.followed),
+                }
+              : undefined,
+          };
+        });
+      },
+      () =>
+        prisma.activity.count({
+          where: {
+            profileId: this.id,
+          },
+        }),
+      {
+        after,
+        before,
+        first,
+        last,
+      }
+    );
   }
 
   async views() {
@@ -174,11 +245,8 @@ export class Profile implements PQ.Profile {
   }
 }
 
-export interface ProfileData {
-  bio: string | null;
-}
-
 export interface ProfileUpdateData {
+  language?: PQ.$Enums.Language;
   bio?: string | null;
 }
 
@@ -188,17 +256,17 @@ export class ProfileRepository {
   async create(userId: string) {
     const profile = await this.prismaProfile.create({
       data: {
-        userId,
+        id: userId,
       },
     });
 
     return new Profile(profile);
   }
 
-  async update(profileId: string, values: ProfileUpdateData) {
+  async update(userId: string, values: ProfileUpdateData) {
     const profile = await this.prismaProfile.update({
       where: {
-        id: profileId,
+        id: userId,
       },
       data: {
         ...values,
@@ -208,10 +276,10 @@ export class ProfileRepository {
     return new Profile(profile);
   }
 
-  async delete(profileId: string) {
+  async delete(userId: string) {
     return await this.prismaProfile.delete({
       where: {
-        id: profileId,
+        id: userId,
       },
       select: {
         id: true,
@@ -219,40 +287,49 @@ export class ProfileRepository {
     });
   }
 
-  async find(profileId: string) {
+  async find(userId: string) {
     const profile = await this.prismaProfile.findUniqueOrThrow({
       where: {
-        id: profileId,
+        id: userId,
       },
     });
 
     return new Profile(profile);
   }
 
-  async profileIdByUserId(userId: string) {
-    const profile = await this.prismaProfile.findUniqueOrThrow({
-      where: {
-        userId,
+  findAll = (
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"]
+  ) => {
+    return findManyCursorConnection(
+      async (args: any) => {
+        const qs = await this.prismaProfile.findMany({
+          ...args,
+        });
+
+        return qs
+          ? qs.map((result: PQ.Profile) => {
+              return new Profile(result);
+            })
+          : [];
       },
-      select: {
-        id: true,
-      },
-    });
+      () => this.prismaProfile.count(),
+      {
+        after,
+        before,
+        first,
+        last,
+      }
+    );
+  };
 
-    return profile.id;
-  }
-
-  async findAll() {
-    const profiles = await this.prismaProfile.findMany();
-
-    return profiles.map((profile) => new Profile(profile));
-  }
-
-  async registerView(profileId: string) {
+  async registerView(userId: string) {
     await prisma.profileStatistic.upsert({
       where: {
         profileId_createdAt: {
-          profileId,
+          profileId: userId,
           createdAt: new Date().toISOString(),
         },
       },
@@ -262,7 +339,7 @@ export class ProfileRepository {
         },
       },
       create: {
-        profileId,
+        profileId: userId,
         profileViews: 1,
       },
     });

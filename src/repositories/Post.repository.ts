@@ -1,11 +1,19 @@
 import * as PQ from "@prisma/client";
 import { prisma } from "../prisma";
 import { Profile } from "./Profile.repository";
+import slugify from "slugify";
+import { NotFoundError } from "../errors/general.errors";
+import {
+  ConnectionArguments,
+  findManyCursorConnection,
+} from "@devoxa/prisma-relay-cursor-connection";
 
-export type Privacy = "public" | "private" | "friends";
+export type Privacy = PQ.$Enums.Privacy;
+export type Language = PQ.$Enums.Language;
 
 export class Post implements PQ.Post {
   id: string;
+  slug: string;
   title: string;
   avatarURL: string | null;
   summary: string | null;
@@ -14,6 +22,7 @@ export class Post implements PQ.Post {
   createdAt: Date;
   updatedAt: Date;
   privacy: Privacy;
+  language: Language;
 
   constructor(data: PQ.Post) {
     for (const key in data) {
@@ -34,29 +43,52 @@ export class Post implements PQ.Post {
     return data ? new Profile(data.profile) : null;
   };
 
-  stars = async () => {
-    const stars = await prisma.post.findUnique({
-      where: {
-        id: this.id,
-      },
-      select: {
-        stars: {
-          select: {
-            profile: true,
-            createdAt: true,
-          },
-        },
-      },
-    });
+  stars = async (
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"],
+    filters?: { userId?: string }
+  ) => {
+    try {
+      return findManyCursorConnection(
+        async (args: any) => {
+          const qs = await prisma.star.findMany({
+            where: {
+              postId: this.id,
+              profileId: filters?.userId,
+            },
 
-    return stars
-      ? stars.stars.map((star) => {
-          return {
-            profile: () => new Profile(star.profile),
-            createdAt: star.createdAt,
-          };
-        })
-      : [];
+            include: {
+              profile: true,
+            },
+            ...(args as {}),
+          });
+
+          return qs.map((star) => {
+            return {
+              profile: () => new Profile(star.profile),
+              createdAt: star.createdAt,
+            };
+          });
+        },
+        () =>
+          prisma.star.count({
+            where: {
+              postId: this.id,
+              profileId: filters?.userId,
+            },
+          }),
+        {
+          after,
+          before,
+          first,
+          last,
+        }
+      );
+    } catch (error) {
+      throw new NotFoundError("Posts not found");
+    }
   };
 
   async views() {
@@ -83,6 +115,7 @@ export interface PostData {
 
 export interface PostUpdateData {
   title?: string;
+  language?: Language;
   avatarURL?: string;
   summary?: string;
   content?: string;
@@ -93,8 +126,24 @@ export class PostRepository {
   constructor(private readonly prismaPost: PQ.PrismaClient["post"]) {}
 
   async create(profileId: string, values: PostData) {
+    let slug = slugify(values.title, {
+      lower: true,
+    });
+
+    let i = 1;
+
+    while (await this.prismaPost.findUnique({ where: { slug } })) {
+      slug =
+        slugify(values.title, {
+          lower: true,
+        }) +
+        "-" +
+        i++;
+    }
+
     const post = await this.prismaPost.create({
       data: {
+        slug,
         profileId,
         ...values,
       },
@@ -125,39 +174,91 @@ export class PostRepository {
     });
   }
 
-  async find(postId: string) {
+  async find(postId?: string, slug?: string) {
+    if (!postId && !slug) {
+      throw new Error("Either postId or slug must be provided.");
+    }
+
     const post = await this.prismaPost.findUnique({
       where: {
         id: postId,
+        slug,
       },
     });
 
     return post ? new Post(post) : null;
   }
 
-  async findAll(filters: {
-    profileId?: string;
-    privacy?: Privacy;
-    limit?: number;
-    offset?: number;
-  }) {
+  async findAll(
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"],
+    filters?: {
+      profileId?: string;
+      privacy?: Privacy;
+      language?: Language;
+      query?: string;
+    }
+  ) {
     console.log("Find all posts with filters: ", filters);
 
-    const posts = await this.prismaPost.findMany({
-      where: {
-        profileId: filters.profileId,
-        privacy: filters.privacy,
-      },
-      take: filters.limit,
-      skip: filters.offset,
-    });
+    return findManyCursorConnection(
+      async (args: any) => {
+        const qs = await this.prismaPost.findMany({
+          where: {
+            profileId: filters?.profileId,
+            privacy: filters?.privacy,
+            language: filters?.language,
+            OR: filters?.query
+              ? [
+                  { title: { contains: filters.query } },
+                  { summary: { contains: filters.query } },
+                  { content: { contains: filters.query } },
+                ]
+              : undefined,
+          },
+          ...args,
+        });
 
-    return posts.map((post) => new Post(post));
+        return qs.map((post) => new Post(post));
+      },
+      () =>
+        this.prismaPost.count({
+          where: {
+            profileId: filters?.profileId,
+            privacy: filters?.privacy,
+            language: filters?.language,
+            OR: filters?.query
+              ? [
+                  { title: { contains: filters.query } },
+                  { summary: { contains: filters.query } },
+                  { content: { contains: filters.query } },
+                ]
+              : undefined,
+          },
+        }),
+      {
+        after,
+        before,
+        first,
+        last,
+      }
+    );
   }
 
   async findTrending(
     timeFrameInDays: number,
-    filters: { limit?: number; offset?: number }
+    filters: {
+      limit?: number;
+      offset?: number;
+      profileId?: string;
+      language?: Language;
+    },
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"]
   ) {
     // Calculate the date for the beginning of the time frame
     const startDate = new Date();
@@ -181,31 +282,55 @@ export class PostRepository {
       },
     });
 
-    const trendingPosts = await this.prismaPost.findMany({
-      where: {
-        id: {
-          in: group.map((post) => post.postId),
-        },
-        privacy: "public",
+    console.log("Group: ", group);
+
+    return findManyCursorConnection(
+      async (args: any) => {
+        const qs = await this.prismaPost.findMany({
+          where: {
+            id: {
+              in: group.map((post) => post.postId),
+            },
+            profileId: filters.profileId,
+            privacy: "PUBLIC",
+            language: filters.language,
+          },
+          ...args,
+        });
+
+        const sortedTrendingPosts: typeof qs = [];
+
+        for (const { postId } of group) {
+          // find post by id
+          const sortedPost = qs.find((post) => post.id === postId);
+
+          if (sortedPost) {
+            sortedTrendingPosts.push(sortedPost);
+          }
+        }
+
+        console.log("Sorted trending posts: ", sortedTrendingPosts);
+
+        return sortedTrendingPosts.map((post) => new Post(post));
       },
-      take: filters.limit,
-      skip: filters.offset,
-    });
-
-    console.log("Trending posts: ", trendingPosts);
-
-    const sortedTrendingPosts: typeof trendingPosts = [];
-
-    for (const { postId } of group) {
-      // find post by id
-      const sortedPost = trendingPosts.find((post) => post.id === postId);
-
-      if (sortedPost) {
-        sortedTrendingPosts.push(sortedPost);
+      () =>
+        this.prismaPost.count({
+          where: {
+            id: {
+              in: group.map((post) => post.postId),
+            },
+            profileId: filters.profileId,
+            privacy: "PUBLIC",
+            language: filters.language,
+          },
+        }),
+      {
+        after,
+        before,
+        first,
+        last,
       }
-    }
-
-    return sortedTrendingPosts.map((post) => new Post(post));
+    );
   }
 
   registerView = async (postId: string) => {
@@ -238,13 +363,13 @@ export class PostRepository {
       select: {
         profile: {
           select: {
-            userId: true,
+            id: true,
           },
         },
       },
     });
 
-    return post?.profile.userId;
+    return post?.profile.id;
   }
 }
 

@@ -1,5 +1,4 @@
 import {
-  ProfileData,
   ProfileRepository,
   ProfileUpdateData,
   profileRepository,
@@ -18,6 +17,7 @@ import {
   activityRepository,
 } from "../repositories/Activity.repository";
 import { withContext } from "@snek-at/function";
+import { ConnectionArguments } from "@devoxa/prisma-relay-cursor-connection";
 
 class ProfileService {
   private repository: {
@@ -39,7 +39,7 @@ class ProfileService {
 
     const profile = await this.repository.profile.create(userId);
 
-    await this.repository.activity.createProfileActivity(profile.id, "create");
+    await this.repository.activity.createProfileActivity(userId, "create");
 
     return profile;
   });
@@ -47,12 +47,7 @@ class ProfileService {
   update = withContext((context) => async (values: ProfileUpdateData) => {
     const userId = context.req.headers["x-forwarded-user"] as string;
 
-    const profileId = await this.repository.profile.profileIdByUserId(userId);
-
-    const updatedProfile = await this.repository.profile.update(
-      profileId,
-      values
-    );
+    const updatedProfile = await this.repository.profile.update(userId, values);
 
     return updatedProfile;
   });
@@ -60,53 +55,48 @@ class ProfileService {
   delete = withContext((context) => async () => {
     const userId = context.req.headers["x-forwarded-user"] as string;
 
-    const profileId = await this.repository.profile.profileIdByUserId(userId);
-
-    await this.repository.profile.delete(profileId);
+    await this.repository.profile.delete(userId);
 
     return true;
   });
 
-  find = withContext((context) => async (profileId?: string) => {
-    const userId = context.req.headers["x-forwarded-user"] as string;
+  find = withContext((context) => async (userId: string) => {
+    const forwardedUserId = context.req.headers["x-forwarded-user"] as string;
 
-    if (!profileId) {
-      profileId = await this.repository.profile.profileIdByUserId(userId);
-    }
+    const profile = await this.repository.profile.find(userId);
 
-    const profile = await this.repository.profile.find(profileId);
-
-    if (profile.userId !== userId) {
-      await this.repository.profile.registerView(profileId);
+    if (profile.id !== forwardedUserId) {
+      await this.repository.profile.registerView(userId);
     }
 
     return profile;
   });
 
-  findAll = async () => {
-    const profiles = await this.repository.profile.findAll();
-
-    return profiles;
+  findAll = (
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"]
+  ) => {
+    return this.repository.profile.findAll(after, before, first, last);
   };
 
-  follow = withContext((context) => async (followProfileId: string) => {
-    const userId = context.req.headers["x-forwarded-user"] as string;
-
-    const profileId = await this.repository.profile.profileIdByUserId(userId);
+  follow = withContext((context) => async (userId: string) => {
+    const forwardedUserId = context.req.headers["x-forwarded-user"] as string;
 
     const isAlreadyFollowed = await this.repository.follow.checkFollow(
-      profileId,
-      followProfileId
+      forwardedUserId,
+      userId
     );
 
     if (!isAlreadyFollowed) {
       const followed = await this.repository.follow.follow(
-        profileId,
-        followProfileId
+        forwardedUserId,
+        userId
       );
 
       await this.repository.activity.createProfileFollowActivity(
-        profileId,
+        forwardedUserId,
         followed.id,
         "follow"
       );
@@ -114,29 +104,27 @@ class ProfileService {
       return followed;
     }
 
-    throw new ProfileAlreadyFollowedError(followProfileId);
+    throw new ProfileAlreadyFollowedError(userId);
   });
 
-  unfollow = withContext((context) => async (followProfileId: string) => {
-    const userId = context.req.headers["x-forwarded-user"] as string;
-
-    const profileId = await this.repository.profile.profileIdByUserId(userId);
+  unfollow = withContext((context) => async (userId: string) => {
+    const forwardedUserId = context.req.headers["x-forwarded-user"] as string;
 
     const isAlreadyFollowed = await this.repository.follow.checkFollow(
-      profileId,
-      followProfileId
+      forwardedUserId,
+      userId
     );
 
     if (isAlreadyFollowed) {
       const followed = await this.repository.follow.unfollow(
-        profileId,
-        followProfileId
+        forwardedUserId,
+        userId
       );
 
       return followed;
     }
 
-    throw new ProfileNotFollowedError(followProfileId);
+    throw new ProfileNotFollowedError(userId);
   });
 }
 
