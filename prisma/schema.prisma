@@ -44,7 +44,7 @@ model ProfileStatistic {
     profileViews Int @default(0)
 
     // Relationships
-    profile   Profile @relation(fields: [profileId], references: [id])
+    profile   Profile @relation(fields: [profileId], references: [id], onDelete: Cascade)
     profileId String  @db.Uuid
 
     @@unique([profileId, createdAt])
@@ -74,7 +74,7 @@ model PostStatistic {
     // Add more fields for other post-related statistics as needed
 
     // Relationships
-    post   Post   @relation(fields: [postId], references: [id])
+    post   Post   @relation(fields: [postId], references: [id], onDelete: Cascade)
     postId String @db.Uuid
 
     @@unique([postId, createdAt])
@@ -104,9 +104,9 @@ model Post {
 model Star {
     id        String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
     postId    String     @db.Uuid
-    profile   Profile    @relation("Starrer", fields: [profileId], references: [id])
+    profile   Profile    @relation("Starrer", fields: [profileId], references: [id], onDelete: Cascade)
     profileId String     @db.Uuid
-    post      Post       @relation("Star", fields: [postId], references: [id])
+    post      Post       @relation("Star", fields: [postId], references: [id], onDelete: Cascade)
     createdAt DateTime   @default(now())
     Activity  Activity[]
 
@@ -115,9 +115,9 @@ model Star {
 
 model Follow {
     id         String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-    follower   Profile    @relation("Follower", fields: [followerId], references: [id])
+    follower   Profile    @relation("Follower", fields: [followerId], references: [id], onDelete: Cascade)
     followerId String     @db.Uuid
-    followed   Profile    @relation("Followed", fields: [followedId], references: [id])
+    followed   Profile    @relation("Followed", fields: [followedId], references: [id], onDelete: Cascade)
     followedId String     @db.Uuid
     createdAt  DateTime   @default(now())
     Activity   Activity[]
