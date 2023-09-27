@@ -20,17 +20,41 @@ export class Profile implements PQ.Profile {
     }
   }
 
-  async posts() {
-    const posts = await prisma.profile.findUnique({
-      where: {
-        id: this.id,
-      },
-      select: {
-        posts: true,
-      },
-    });
+  async posts(
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"]
+  ) {
+    return findManyCursorConnection(
+      async (args: any) => {
+        const qs = await prisma.post.findMany({
+          where: {
+            profileId: this.id,
+          },
+          orderBy: {
+            createdAt: "desc",
+          },
+          ...(args as {}),
+        });
 
-    return posts ? posts.posts.map((post) => new Post(post)) : [];
+        return qs.map((post) => {
+          return new Post(post);
+        });
+      },
+      () =>
+        prisma.post.count({
+          where: {
+            profileId: this.id,
+          },
+        }),
+      {
+        after,
+        before,
+        first,
+        last,
+      }
+    );
   }
 
   async starredPosts(
@@ -56,6 +80,7 @@ export class Profile implements PQ.Profile {
 
         return qs.map((star) => {
           return {
+            id: star.id,
             post: () => new Post(star.post),
             createdAt: star.createdAt,
           };
@@ -102,6 +127,7 @@ export class Profile implements PQ.Profile {
 
           return qs.map((follow) => {
             return {
+              id: follow.id,
               follower: () => new Profile(follow.follower),
               createdAt: follow.createdAt,
             };
@@ -152,6 +178,7 @@ export class Profile implements PQ.Profile {
 
           return qs.map((follow) => {
             return {
+              id: follow.id,
               followed: () => new Profile(follow.followed),
               createdAt: follow.createdAt,
             };
@@ -182,8 +209,10 @@ export class Profile implements PQ.Profile {
     first: ConnectionArguments["first"],
     last: ConnectionArguments["last"]
   ) {
+    console.log(after, before, first, last, this.id);
     return findManyCursorConnection(
       async (args: any) => {
+        console.log(args);
         const qs = await prisma.activity.findMany({
           where: {
             profileId: this.id,
@@ -199,11 +228,14 @@ export class Profile implements PQ.Profile {
           orderBy: {
             createdAt: "desc",
           },
+          distinct: ["type", "postId", "followId", "starId"],
+
           ...(args as {}),
         });
 
         return qs.map((activty) => {
           return {
+            id: activty.id,
             createdAt: activty.createdAt.toISOString(),
             type: activty.type,
             post: activty.post ? new Post(activty.post) : null,
@@ -216,12 +248,17 @@ export class Profile implements PQ.Profile {
           };
         });
       },
-      () =>
-        prisma.activity.count({
-          where: {
-            profileId: this.id,
-          },
-        }),
+      async () => {
+        const res =
+          prisma.$queryRaw`SELECT COUNT(DISTINCT concat("type", "postId", "followId", "starId")) as "count" FROM "Activity" WHERE "profileId"::text = ${this.id}` as Promise<
+            { count: BigInt }[]
+          >;
+
+        const count = (await res)[0].count;
+
+        // Convert BigInt to Number
+        return Number(count);
+      },
       {
         after,
         before,

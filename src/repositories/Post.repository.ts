@@ -67,6 +67,7 @@ export class Post implements PQ.Post {
 
           return qs.map((star) => {
             return {
+              id: star.id,
               profile: () => new Profile(star.profile),
               createdAt: star.createdAt,
             };
@@ -111,6 +112,7 @@ export interface PostData {
   summary?: string;
   content?: string;
   privacy?: Privacy;
+  language?: Language;
 }
 
 export interface PostUpdateData {
@@ -195,7 +197,7 @@ export class PostRepository {
     first: ConnectionArguments["first"],
     last: ConnectionArguments["last"],
     filters?: {
-      profileId?: string;
+      userId?: string;
       privacy?: Privacy;
       language?: Language;
       query?: string;
@@ -207,14 +209,14 @@ export class PostRepository {
       async (args: any) => {
         const qs = await this.prismaPost.findMany({
           where: {
-            profileId: filters?.profileId,
+            profileId: filters?.userId,
             privacy: filters?.privacy,
             language: filters?.language,
             OR: filters?.query
               ? [
-                  { title: { contains: filters.query } },
-                  { summary: { contains: filters.query } },
-                  { content: { contains: filters.query } },
+                  { title: { contains: filters.query, mode: "insensitive" } },
+                  { summary: { contains: filters.query, mode: "insensitive" } },
+                  { content: { contains: filters.query, mode: "insensitive" } },
                 ]
               : undefined,
           },
@@ -226,14 +228,14 @@ export class PostRepository {
       () =>
         this.prismaPost.count({
           where: {
-            profileId: filters?.profileId,
+            profileId: filters?.userId,
             privacy: filters?.privacy,
             language: filters?.language,
             OR: filters?.query
               ? [
-                  { title: { contains: filters.query } },
-                  { summary: { contains: filters.query } },
-                  { content: { contains: filters.query } },
+                  { title: { contains: filters.query, mode: "insensitive" } },
+                  { summary: { contains: filters.query, mode: "insensitive" } },
+                  { content: { contains: filters.query, mode: "insensitive" } },
                 ]
               : undefined,
           },
@@ -250,9 +252,7 @@ export class PostRepository {
   async findTrending(
     timeFrameInDays: number,
     filters: {
-      limit?: number;
-      offset?: number;
-      profileId?: string;
+      userId?: string;
       language?: Language;
     },
     after: ConnectionArguments["after"],
@@ -291,9 +291,12 @@ export class PostRepository {
             id: {
               in: group.map((post) => post.postId),
             },
-            profileId: filters.profileId,
+            profileId: filters.userId,
             privacy: "PUBLIC",
             language: filters.language,
+          },
+          orderBy: {
+            createdAt: "desc",
           },
           ...args,
         });
@@ -319,7 +322,7 @@ export class PostRepository {
             id: {
               in: group.map((post) => post.postId),
             },
-            profileId: filters.profileId,
+            profileId: filters.userId,
             privacy: "PUBLIC",
             language: filters.language,
           },

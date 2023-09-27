@@ -160,9 +160,7 @@ export class PostService {
     first: ConnectionArguments["first"],
     last: ConnectionArguments["last"],
     filters?: {
-      limit?: number;
-      offset?: number;
-      profileId?: string;
+      userId?: string;
       language?: Language;
     }
   ) => {
