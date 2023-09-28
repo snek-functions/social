@@ -201,10 +201,10 @@ export class PostRepository {
       privacy?: Privacy;
       language?: Language;
       query?: string;
+      from?: string;
+      to?: string;
     }
   ) {
-    console.log("Find all posts with filters: ", filters);
-
     return findManyCursorConnection(
       async (args: any) => {
         const qs = await this.prismaPost.findMany({
@@ -219,6 +219,13 @@ export class PostRepository {
                   { content: { contains: filters.query, mode: "insensitive" } },
                 ]
               : undefined,
+            createdAt:
+              filters?.from || filters?.to
+                ? {
+                    lte: filters?.to ? new Date(filters.to) : undefined,
+                    gte: filters?.from ? new Date(filters.from) : undefined,
+                  }
+                : undefined,
           },
           ...args,
         });
@@ -238,6 +245,13 @@ export class PostRepository {
                   { content: { contains: filters.query, mode: "insensitive" } },
                 ]
               : undefined,
+            createdAt:
+              filters?.from || filters?.to
+                ? {
+                    lte: filters?.to ? new Date(filters.to) : undefined,
+                    gte: filters?.from ? new Date(filters.from) : undefined,
+                  }
+                : undefined,
           },
         }),
       {

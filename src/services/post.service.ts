@@ -79,6 +79,8 @@ export class PostService {
     }
 
     await this.repository.post.delete(postId);
+
+    return true;
   });
 
   find = withContext((context) => async (postId?: string, slug?: string) => {
@@ -110,6 +112,8 @@ export class PostService {
           privacy?: Privacy;
           language?: Language;
           query?: string;
+          from?: string;
+          to?: string;
         }
       ) => {
         // Default privacy is public

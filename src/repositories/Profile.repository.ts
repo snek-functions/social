@@ -101,6 +101,52 @@ export class Profile implements PQ.Profile {
     );
   }
 
+  async stars(
+    after: ConnectionArguments["after"],
+    before: ConnectionArguments["before"],
+    first: ConnectionArguments["first"],
+    last: ConnectionArguments["last"]
+  ) {
+    try {
+      return findManyCursorConnection(
+        async (args: any) => {
+          const qs = await prisma.star.findMany({
+            where: {
+              profileId: this.id,
+            },
+
+            include: {
+              post: true,
+            },
+            ...(args as {}),
+          });
+
+          return qs.map((star) => {
+            return {
+              id: star.id,
+              post: () => new Post(star.post),
+              createdAt: star.createdAt,
+            };
+          });
+        },
+        () =>
+          prisma.star.count({
+            where: {
+              profileId: this.id,
+            },
+          }),
+        {
+          after,
+          before,
+          first,
+          last,
+        }
+      );
+    } catch (error) {
+      throw new NotFoundError("Stars not found");
+    }
+  }
+
   async followers(
     after: ConnectionArguments["after"],
     before: ConnectionArguments["before"],
