@@ -24,10 +24,87 @@ export class Post implements PQ.Post {
   privacy: Privacy;
   language: Language;
 
-  constructor(data: PQ.Post) {
+  $query?: string;
+
+  constructor(data: PQ.Post, query?: string) {
     for (const key in data) {
       this[key] = data[key];
     }
+
+    this.$query = query;
+  }
+
+  /**
+   * The text phrase that explains why the post is returned as a match for the given search query.
+   * This field is used for providing context or explanation of the query match in search results.
+   *
+   * The summary is prioritized over the content.
+   */
+  matchingQuery() {
+    // Find the first occurrence of the query in the summary or content and return a range of 100 characters around it
+    const query = this.$query?.toLowerCase();
+
+    if (!query) {
+      return null;
+    }
+
+    if (this.summary) {
+      const summaryIndex = this.summary.toLowerCase().indexOf(query);
+
+      if (summaryIndex !== -1) {
+        const summaryStart = Math.max(0, summaryIndex - 50); // Start 50 characters before the query hit or at the beginning of the summary
+        const summaryEnd = Math.min(summaryStart + 100, this.summary.length); // End 50 characters after the query hit or at the end of the summary
+        const summary = this.summary.substring(summaryStart, summaryEnd);
+
+        return summary;
+      }
+    }
+
+    if (this.content) {
+      const content = JSON.parse(this.content);
+
+      function searchForKey(
+        obj: object,
+        key: string,
+        query: string
+      ): string | null {
+        if (typeof obj !== "object" || obj === null) {
+          return null; // Not an object, cannot contain the key
+        }
+
+        for (const prop in obj) {
+          if (obj.hasOwnProperty(prop)) {
+            if (prop === key) {
+              const index = obj[prop].toLowerCase().indexOf(query);
+
+              if (index !== -1) {
+                const start = Math.max(0, index - 50); // Start 50 characters before the query hit or at the beginning of the summary
+                const end = Math.min(start + 100, obj[prop].length); // End 50 characters after the query hit or at the end of the summary
+                const content = obj[prop].substring(start, end);
+
+                return content;
+              }
+            }
+
+            if (typeof obj[prop] === "object" && obj[prop] !== null) {
+              // Recursively search nested objects and arrays
+              const result = searchForKey(obj[prop], key, query);
+              if (result !== null) {
+                return result; // Return the matched value from nested structure
+              }
+            }
+          }
+        }
+
+        return null; // Key not found at any level
+      }
+
+      const contentIndex = searchForKey(content, "value", query);
+
+      return contentIndex;
+    }
+
+    return null;
   }
 
   profile = async () => {
@@ -234,7 +311,7 @@ export class PostRepository {
           ...args,
         });
 
-        return qs.map((post) => new Post(post));
+        return qs.map((post) => new Post(post, filters?.query));
       },
       () =>
         this.prismaPost.count({
