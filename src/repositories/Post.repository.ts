@@ -151,6 +151,10 @@ export class PostRepository {
       },
     });
 
+    // Temporary register a view for the post to make it appear in trending
+    await this.registerView(post.id);
+
+    // The post does not have the correct view count yet.
     return new Post(post);
   }
 
