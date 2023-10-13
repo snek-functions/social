@@ -308,6 +308,9 @@ export class PostRepository {
                   }
                 : undefined,
           },
+          orderBy: {
+            createdAt: "desc",
+          },
           ...args,
         });
 
