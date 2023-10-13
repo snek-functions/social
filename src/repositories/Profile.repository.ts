@@ -66,6 +66,7 @@ export class Profile implements PQ.Profile {
       query?: string;
       from?: string;
       to?: string;
+      language?: PQ.$Enums.Language;
     }
   ) {
     return findManyCursorConnection(
@@ -82,6 +83,7 @@ export class Profile implements PQ.Profile {
                 contains: filters?.query,
                 mode: "insensitive",
               },
+              language: filters?.language,
             },
           },
           include: {
@@ -125,6 +127,7 @@ export class Profile implements PQ.Profile {
       query?: string;
       from?: string;
       to?: string;
+      language?: PQ.$Enums.Language;
     }
   ) {
     try {
@@ -142,6 +145,7 @@ export class Profile implements PQ.Profile {
                   contains: filters?.query,
                   mode: "insensitive",
                 },
+                language: filters?.language,
               },
             },
 
