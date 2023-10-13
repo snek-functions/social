@@ -61,13 +61,28 @@ export class Profile implements PQ.Profile {
     after: ConnectionArguments["after"],
     before: ConnectionArguments["before"],
     first: ConnectionArguments["first"],
-    last: ConnectionArguments["last"]
+    last: ConnectionArguments["last"],
+    filters?: {
+      query?: string;
+      from?: string;
+      to?: string;
+    }
   ) {
     return findManyCursorConnection(
       async (args: any) => {
         const qs = await prisma.star.findMany({
           where: {
             profileId: this.id,
+            createdAt: {
+              gte: filters?.from,
+              lte: filters?.to,
+            },
+            post: {
+              title: {
+                contains: filters?.query,
+                mode: "insensitive",
+              },
+            },
           },
           include: {
             post: true,
@@ -105,7 +120,12 @@ export class Profile implements PQ.Profile {
     after: ConnectionArguments["after"],
     before: ConnectionArguments["before"],
     first: ConnectionArguments["first"],
-    last: ConnectionArguments["last"]
+    last: ConnectionArguments["last"],
+    filters?: {
+      query?: string;
+      from?: string;
+      to?: string;
+    }
   ) {
     try {
       return findManyCursorConnection(
@@ -113,6 +133,16 @@ export class Profile implements PQ.Profile {
           const qs = await prisma.star.findMany({
             where: {
               profileId: this.id,
+              createdAt: {
+                gte: filters?.from,
+                lte: filters?.to,
+              },
+              post: {
+                title: {
+                  contains: filters?.query,
+                  mode: "insensitive",
+                },
+              },
             },
 
             include: {
@@ -152,7 +182,7 @@ export class Profile implements PQ.Profile {
     before: ConnectionArguments["before"],
     first: ConnectionArguments["first"],
     last: ConnectionArguments["last"],
-    filters?: { userId?: string }
+    filters?: { userId?: string; from?: string; to?: string }
   ) {
     try {
       return findManyCursorConnection(
@@ -161,6 +191,10 @@ export class Profile implements PQ.Profile {
             where: {
               followedId: this.id,
               followerId: filters?.userId,
+              createdAt: {
+                gte: filters?.from,
+                lte: filters?.to,
+              },
             },
             include: {
               follower: true,
@@ -203,7 +237,7 @@ export class Profile implements PQ.Profile {
     before: ConnectionArguments["before"],
     first: ConnectionArguments["first"],
     last: ConnectionArguments["last"],
-    filters?: { userId?: string }
+    filters?: { userId?: string; from?: string; to?: string }
   ) {
     try {
       return findManyCursorConnection(
@@ -212,6 +246,10 @@ export class Profile implements PQ.Profile {
             where: {
               followerId: this.id,
               followedId: filters?.userId,
+              createdAt: {
+                gte: filters?.from,
+                lte: filters?.to,
+              },
             },
             include: {
               followed: true,
