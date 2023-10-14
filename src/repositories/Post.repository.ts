@@ -7,6 +7,7 @@ import {
   ConnectionArguments,
   findManyCursorConnection,
 } from "@devoxa/prisma-relay-cursor-connection";
+import { Context, withContext } from "@snek-at/function";
 
 export type Privacy = PQ.$Enums.Privacy;
 export type Language = PQ.$Enums.Language;
@@ -257,11 +258,7 @@ export class PostRepository {
     });
   }
 
-  async find(postId?: string, slug?: string) {
-    if (!postId && !slug) {
-      throw new Error("Either postId or slug must be provided.");
-    }
-
+  find = (context: Context) => async (postId?: string, slug?: string) => {
     const post = await this.prismaPost.findUnique({
       where: {
         id: postId,
@@ -269,83 +266,129 @@ export class PostRepository {
       },
     });
 
-    return post ? new Post(post) : null;
-  }
+    if (post) {
+      if (post.privacy !== PQ.Privacy.PUBLIC) {
+        const userId = context.req.headers["x-forwarded-user"] as string;
 
-  async findAll(
-    after: ConnectionArguments["after"],
-    before: ConnectionArguments["before"],
-    first: ConnectionArguments["first"],
-    last: ConnectionArguments["last"],
-    filters?: {
-      userId?: string;
-      privacy?: Privacy;
-      language?: Language;
-      query?: string;
-      from?: string;
-      to?: string;
-    }
-  ) {
-    return findManyCursorConnection(
-      async (args: any) => {
-        const qs = await this.prismaPost.findMany({
-          where: {
-            profileId: filters?.userId,
-            privacy: filters?.privacy,
-            language: filters?.language,
-            OR: filters?.query
-              ? [
-                  { title: { contains: filters.query, mode: "insensitive" } },
-                  { summary: { contains: filters.query, mode: "insensitive" } },
-                  { content: { contains: filters.query, mode: "insensitive" } },
-                ]
-              : undefined,
-            createdAt:
-              filters?.from || filters?.to
-                ? {
-                    lte: filters?.to ? new Date(filters.to) : undefined,
-                    gte: filters?.from ? new Date(filters.from) : undefined,
-                  }
-                : undefined,
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-          ...args,
-        });
-
-        return qs.map((post) => new Post(post, filters?.query));
-      },
-      () =>
-        this.prismaPost.count({
-          where: {
-            profileId: filters?.userId,
-            privacy: filters?.privacy,
-            language: filters?.language,
-            OR: filters?.query
-              ? [
-                  { title: { contains: filters.query, mode: "insensitive" } },
-                  { summary: { contains: filters.query, mode: "insensitive" } },
-                  { content: { contains: filters.query, mode: "insensitive" } },
-                ]
-              : undefined,
-            createdAt:
-              filters?.from || filters?.to
-                ? {
-                    lte: filters?.to ? new Date(filters.to) : undefined,
-                    gte: filters?.from ? new Date(filters.from) : undefined,
-                  }
-                : undefined,
-          },
-        }),
-      {
-        after,
-        before,
-        first,
-        last,
+        if (userId !== post.profileId) {
+          throw new NotFoundError("Post not found");
+        }
       }
-    );
-  }
+    } else {
+      throw new NotFoundError("Post not found");
+    }
+
+    return new Post(post);
+  };
+
+  findAll =
+    (context: Context) =>
+    async (
+      after: ConnectionArguments["after"],
+      before: ConnectionArguments["before"],
+      first: ConnectionArguments["first"],
+      last: ConnectionArguments["last"],
+      filters?: {
+        userId?: string;
+        privacy?: Privacy;
+        language?: Language;
+        query?: string;
+        from?: Date;
+        to?: Date;
+      }
+    ) => {
+      let privacy: PQ.Privacy | undefined = PQ.Privacy.PUBLIC;
+
+      if (
+        (context.req.headers["x-forwarded-user"] as string) === filters?.userId
+      ) {
+        privacy = filters?.privacy || undefined;
+      }
+
+      return findManyCursorConnection(
+        async (args: any) => {
+          const qs = await this.prismaPost.findMany({
+            where: {
+              profileId: filters?.userId,
+              privacy: filters?.privacy,
+              language: filters?.language,
+              OR: filters?.query
+                ? [
+                    {
+                      title: { contains: filters.query, mode: "insensitive" },
+                    },
+                    {
+                      summary: {
+                        contains: filters.query,
+                        mode: "insensitive",
+                      },
+                    },
+                    {
+                      content: {
+                        contains: filters.query,
+                        mode: "insensitive",
+                      },
+                    },
+                  ]
+                : undefined,
+              createdAt:
+                filters?.from || filters?.to
+                  ? {
+                      lte: filters?.to ? new Date(filters.to) : undefined,
+                      gte: filters?.from ? new Date(filters.from) : undefined,
+                    }
+                  : undefined,
+            },
+            orderBy: {
+              createdAt: "desc",
+            },
+            ...args,
+          });
+
+          return qs.map((post) => new Post(post, filters?.query));
+        },
+        () =>
+          this.prismaPost.count({
+            where: {
+              profileId: filters?.userId,
+              privacy: filters?.privacy,
+              language: filters?.language,
+              OR: filters?.query
+                ? [
+                    {
+                      title: { contains: filters.query, mode: "insensitive" },
+                    },
+                    {
+                      summary: {
+                        contains: filters.query,
+                        mode: "insensitive",
+                      },
+                    },
+                    {
+                      content: {
+                        contains: filters.query,
+                        mode: "insensitive",
+                      },
+                    },
+                  ]
+                : undefined,
+              createdAt:
+                filters?.from || filters?.to
+                  ? {
+                      lte: filters?.to ? new Date(filters.to) : undefined,
+                      gte: filters?.from ? new Date(filters.from) : undefined,
+                    }
+                  : undefined,
+            },
+          }),
+        {
+          after,
+          before,
+          first,
+          last,
+        }
+      );
+    };
 
   async findTrending(
     timeFrameInDays: number,

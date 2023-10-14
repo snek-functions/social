@@ -6,6 +6,7 @@ import {
   ConnectionArguments,
   findManyCursorConnection,
 } from "@devoxa/prisma-relay-cursor-connection";
+import { withContext } from "@snek-at/function";
 
 export class Profile implements PQ.Profile {
   id: string;
@@ -20,173 +21,248 @@ export class Profile implements PQ.Profile {
     }
   }
 
-  async posts(
-    after: ConnectionArguments["after"],
-    before: ConnectionArguments["before"],
-    first: ConnectionArguments["first"],
-    last: ConnectionArguments["last"]
-  ) {
-    return findManyCursorConnection(
-      async (args: any) => {
-        const qs = await prisma.post.findMany({
-          where: {
-            profileId: this.id,
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-          ...(args as {}),
-        });
+  posts = withContext(
+    (context) =>
+      async (
+        after: ConnectionArguments["after"],
+        before: ConnectionArguments["before"],
+        first: ConnectionArguments["first"],
+        last: ConnectionArguments["last"]
+      ) => {
+        const privacy =
+          context.req.headers["x-forwarded-user"] === this.id
+            ? undefined
+            : PQ.$Enums.Privacy.PUBLIC;
 
-        return qs.map((post) => {
-          return new Post(post);
-        });
-      },
-      () =>
-        prisma.post.count({
-          where: {
-            profileId: this.id,
+        return findManyCursorConnection(
+          async (args: any) => {
+            const qs = await prisma.post.findMany({
+              where: {
+                profileId: this.id,
+                privacy,
+              },
+              orderBy: {
+                createdAt: "desc",
+              },
+              ...(args as {}),
+            });
+
+            return qs.map((post) => {
+              return new Post(post);
+            });
           },
-        }),
-      {
-        after,
-        before,
-        first,
-        last,
+          () =>
+            prisma.post.count({
+              where: {
+                profileId: this.id,
+                privacy,
+              },
+            }),
+          {
+            after,
+            before,
+            first,
+            last,
+          }
+        );
       }
-    );
-  }
+  );
 
-  async starredPosts(
-    after: ConnectionArguments["after"],
-    before: ConnectionArguments["before"],
-    first: ConnectionArguments["first"],
-    last: ConnectionArguments["last"],
-    filters?: {
-      query?: string;
-      from?: string;
-      to?: string;
-      language?: PQ.$Enums.Language;
-    }
-  ) {
-    return findManyCursorConnection(
-      async (args: any) => {
-        const qs = await prisma.star.findMany({
-          where: {
-            profileId: this.id,
-            createdAt: {
-              gte: filters?.from,
-              lte: filters?.to,
-            },
-            post: {
-              title: {
-                contains: filters?.query,
-                mode: "insensitive",
-              },
-              language: filters?.language,
-            },
-          },
-          include: {
-            post: true,
-          },
-          orderBy: {
-            createdAt: "desc",
-          },
-          ...(args as {}),
-        });
-
-        return qs.map((star) => {
-          return {
-            id: star.id,
-            post: () => new Post(star.post),
-            createdAt: star.createdAt,
-          };
-        });
-      },
-      () =>
-        prisma.star.count({
-          where: {
-            profileId: this.id,
-          },
-        }),
-      {
-        after,
-        before,
-        first,
-        last,
-      }
-    );
-  }
-
-  async stars(
-    after: ConnectionArguments["after"],
-    before: ConnectionArguments["before"],
-    first: ConnectionArguments["first"],
-    last: ConnectionArguments["last"],
-    filters?: {
-      query?: string;
-      from?: string;
-      to?: string;
-      language?: PQ.$Enums.Language;
-    }
-  ) {
-    try {
-      return findManyCursorConnection(
-        async (args: any) => {
-          const qs = await prisma.star.findMany({
-            where: {
-              profileId: this.id,
-              createdAt: {
-                gte: filters?.from,
-                lte: filters?.to,
-              },
-              post: {
-                title: {
-                  contains: filters?.query,
-                  mode: "insensitive",
-                },
-                language: filters?.language,
-              },
-            },
-
-            include: {
-              post: true,
-            },
-            ...(args as {}),
-          });
-
-          return qs.map((star) => {
-            return {
-              id: star.id,
-              post: () => new Post(star.post),
-              createdAt: star.createdAt,
-            };
-          });
-        },
-        () =>
-          prisma.star.count({
-            where: {
-              profileId: this.id,
-            },
-          }),
-        {
-          after,
-          before,
-          first,
-          last,
+  starredPosts = withContext(
+    (context) =>
+      async (
+        after: ConnectionArguments["after"],
+        before: ConnectionArguments["before"],
+        first: ConnectionArguments["first"],
+        last: ConnectionArguments["last"],
+        filters?: {
+          query?: string;
+          from?: Date;
+          to?: Date;
+          language?: PQ.$Enums.Language;
+          orderBy?: "MOST_RECENT" | "MOST_STARRED";
         }
-      );
-    } catch (error) {
-      throw new NotFoundError("Stars not found");
-    }
-  }
+      ) => {
+        const privacy =
+          context.req.headers["x-forwarded-user"] === this.id
+            ? undefined
+            : PQ.$Enums.Privacy.PUBLIC;
+
+        return findManyCursorConnection(
+          async (args: any) => {
+            const qs = await prisma.star.findMany({
+              where: {
+                profileId: this.id,
+                createdAt: {
+                  gte: filters?.from,
+                  lte: filters?.to,
+                },
+                post: {
+                  title: {
+                    contains: filters?.query,
+                    mode: "insensitive",
+                  },
+                  language: filters?.language,
+                  privacy,
+                },
+              },
+              include: {
+                post: true,
+              },
+              orderBy: {
+                createdAt:
+                  filters?.orderBy === "MOST_RECENT" ? "desc" : undefined,
+                ...(filters?.orderBy === "MOST_STARRED" && {
+                  post: {
+                    stars: {
+                      _count: "desc",
+                    },
+                  },
+                }),
+              },
+              ...(args as {}),
+            });
+
+            return qs.map((star) => {
+              return {
+                id: star.id,
+                post: () => new Post(star.post),
+                createdAt: star.createdAt,
+              };
+            });
+          },
+          () =>
+            prisma.star.count({
+              where: {
+                profileId: this.id,
+                createdAt: {
+                  gte: filters?.from,
+                  lte: filters?.to,
+                },
+                post: {
+                  title: {
+                    contains: filters?.query,
+                    mode: "insensitive",
+                  },
+                  language: filters?.language,
+                  privacy,
+                },
+              },
+            }),
+          {
+            after,
+            before,
+            first,
+            last,
+          }
+        );
+      }
+  );
+
+  stars = withContext(
+    (context) =>
+      (
+        after: ConnectionArguments["after"],
+        before: ConnectionArguments["before"],
+        first: ConnectionArguments["first"],
+        last: ConnectionArguments["last"],
+        filters?: {
+          query?: string;
+          from?: Date;
+          to?: Date;
+          language?: PQ.$Enums.Language;
+          orderBy?: "MOST_RECENT" | "MOST_STARRED";
+        }
+      ) => {
+        try {
+          const privacy =
+            context.req.headers["x-forwarded-user"] === this.id
+              ? undefined
+              : PQ.$Enums.Privacy.PUBLIC;
+
+          return findManyCursorConnection(
+            async (args: any) => {
+              const qs = await prisma.star.findMany({
+                where: {
+                  profileId: this.id,
+                  createdAt: {
+                    gte: filters?.from,
+                    lte: filters?.to,
+                  },
+
+                  post: {
+                    title: {
+                      contains: filters?.query,
+                      mode: "insensitive",
+                    },
+                    language: filters?.language,
+                    privacy,
+                  },
+                },
+                orderBy: {
+                  createdAt:
+                    filters?.orderBy === "MOST_RECENT" ? "desc" : undefined,
+                  ...(filters?.orderBy === "MOST_STARRED" && {
+                    post: {
+                      stars: {
+                        _count: "desc",
+                      },
+                    },
+                  }),
+                },
+
+                include: {
+                  post: true,
+                },
+                ...(args as {}),
+              });
+
+              return qs.map((star) => {
+                return {
+                  id: star.id,
+                  post: () => new Post(star.post),
+                  createdAt: star.createdAt,
+                };
+              });
+            },
+            () =>
+              prisma.star.count({
+                where: {
+                  profileId: this.id,
+                  createdAt: {
+                    gte: filters?.from,
+                    lte: filters?.to,
+                  },
+
+                  post: {
+                    title: {
+                      contains: filters?.query,
+                      mode: "insensitive",
+                    },
+                    language: filters?.language,
+                    privacy,
+                  },
+                },
+              }),
+            {
+              after,
+              before,
+              first,
+              last,
+            }
+          );
+        } catch (error) {
+          throw new NotFoundError("Stars not found");
+        }
+      }
+  );
 
   async followers(
     after: ConnectionArguments["after"],
     before: ConnectionArguments["before"],
     first: ConnectionArguments["first"],
     last: ConnectionArguments["last"],
-    filters?: { userId?: string; from?: string; to?: string }
+    filters?: { userId?: string; from?: Date; to?: Date }
   ) {
     try {
       return findManyCursorConnection(
@@ -222,6 +298,10 @@ export class Profile implements PQ.Profile {
             where: {
               followedId: this.id,
               followerId: filters?.userId,
+              createdAt: {
+                gte: filters?.from,
+                lte: filters?.to,
+              },
             },
           }),
         {
@@ -241,7 +321,7 @@ export class Profile implements PQ.Profile {
     before: ConnectionArguments["before"],
     first: ConnectionArguments["first"],
     last: ConnectionArguments["last"],
-    filters?: { userId?: string; from?: string; to?: string }
+    filters?: { userId?: string; from?: Date; to?: Date }
   ) {
     try {
       return findManyCursorConnection(
@@ -277,6 +357,10 @@ export class Profile implements PQ.Profile {
             where: {
               followerId: this.id,
               followedId: filters?.userId,
+              createdAt: {
+                gte: filters?.from,
+                lte: filters?.to,
+              },
             },
           }),
         {
@@ -291,70 +375,80 @@ export class Profile implements PQ.Profile {
     }
   }
 
-  async activity(
-    after: ConnectionArguments["after"],
-    before: ConnectionArguments["before"],
-    first: ConnectionArguments["first"],
-    last: ConnectionArguments["last"]
-  ) {
-    console.log(after, before, first, last, this.id);
-    return findManyCursorConnection(
-      async (args: any) => {
-        console.log(args);
-        const qs = await prisma.activity.findMany({
-          where: {
-            profileId: this.id,
-          },
-          include: {
-            post: true,
-            follow: {
-              include: {
-                followed: true,
+  activity = withContext(
+    (context) =>
+      async (
+        after: ConnectionArguments["after"],
+        before: ConnectionArguments["before"],
+        first: ConnectionArguments["first"],
+        last: ConnectionArguments["last"]
+      ) => {
+        const privacy =
+          context.req.headers["x-forwarded-user"] === this.id
+            ? undefined
+            : PQ.$Enums.Privacy.PUBLIC;
+
+        return findManyCursorConnection(
+          async (args: any) => {
+            const qs = await prisma.activity.findMany({
+              where: {
+                profileId: this.id,
               },
-            },
+              include: {
+                post: {
+                  where: {
+                    privacy: PQ.$Enums.Privacy.PUBLIC,
+                  },
+                },
+                follow: {
+                  include: {
+                    followed: true,
+                  },
+                },
+              },
+              orderBy: {
+                createdAt: "desc",
+              },
+              distinct: ["type", "postId", "followId", "starId"],
+
+              ...(args as {}),
+            });
+
+            return qs.map((activty) => {
+              return {
+                id: activty.id,
+                createdAt: activty.createdAt.toISOString(),
+                type: activty.type,
+                post: activty.post ? new Post(activty.post) : null,
+                follow: activty.follow
+                  ? {
+                      createdAt: activty.follow.createdAt,
+                      followed: new Profile(activty.follow.followed),
+                    }
+                  : undefined,
+              };
+            });
           },
-          orderBy: {
-            createdAt: "desc",
+          async () => {
+            const res =
+              prisma.$queryRaw`SELECT COUNT(DISTINCT concat("type", "postId", "followId", "starId")) as "count" FROM "Activity" WHERE "profileId"::text = ${this.id}` as Promise<
+                { count: BigInt }[]
+              >;
+
+            const count = (await res)[0].count;
+
+            // Convert BigInt to Number
+            return Number(count);
           },
-          distinct: ["type", "postId", "followId", "starId"],
-
-          ...(args as {}),
-        });
-
-        return qs.map((activty) => {
-          return {
-            id: activty.id,
-            createdAt: activty.createdAt.toISOString(),
-            type: activty.type,
-            post: activty.post ? new Post(activty.post) : null,
-            follow: activty.follow
-              ? {
-                  createdAt: activty.follow.createdAt,
-                  followed: new Profile(activty.follow.followed),
-                }
-              : undefined,
-          };
-        });
-      },
-      async () => {
-        const res =
-          prisma.$queryRaw`SELECT COUNT(DISTINCT concat("type", "postId", "followId", "starId")) as "count" FROM "Activity" WHERE "profileId"::text = ${this.id}` as Promise<
-            { count: BigInt }[]
-          >;
-
-        const count = (await res)[0].count;
-
-        // Convert BigInt to Number
-        return Number(count);
-      },
-      {
-        after,
-        before,
-        first,
-        last,
+          {
+            after,
+            before,
+            first,
+            last,
+          }
+        );
       }
-    );
-  }
+  );
 
   async views() {
     const views = await prisma.profileStatistic.aggregate({

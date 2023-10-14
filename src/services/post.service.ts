@@ -84,7 +84,7 @@ export class PostService {
   });
 
   find = withContext((context) => async (postId?: string, slug?: string) => {
-    const post = await this.repository.post.find(postId, slug);
+    const post = await this.repository.post.find(context)(postId, slug);
 
     const userId = context.req.headers["x-forwarded-user"] as string;
 
@@ -112,41 +112,11 @@ export class PostService {
           privacy?: Privacy;
           language?: Language;
           query?: string;
-          from?: string;
-          to?: string;
+          from?: Date;
+          to?: Date;
         }
       ) => {
-        // Default privacy is public
-        filters = {
-          privacy: "PUBLIC",
-          ...filters,
-        };
-
-        const userId = context.req.headers["x-forwarded-user"] as
-          | string
-          | undefined;
-
-        if (!userId && filters?.privacy !== "PUBLIC") {
-          throw new AuthenticationError(
-            "You need to be logged in to view non-public posts"
-          );
-        }
-
-        filters = {
-          ...filters,
-        };
-
-        try {
-          if (!userId || (filters.userId && filters.userId !== userId)) {
-            // Set privacy to public if user is not the owner of the profile or not logged in
-            filters.privacy = "PUBLIC";
-          }
-        } catch (e) {
-          // Set privacy to public if user is not logged in
-          filters.privacy = "PUBLIC";
-        }
-
-        const posts = await this.repository.post.findAll(
+        const posts = await this.repository.post.findAll(context)(
           after,
           before,
           first,
