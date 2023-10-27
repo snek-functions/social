@@ -49,15 +49,33 @@ export class Post implements PQ.Post {
       return null;
     }
 
+    const calculateMatchingQuery = (text: string) => {
+      const index = text.toLowerCase().indexOf(query);
+
+      if (index !== -1) {
+        const start = Math.max(0, index - 50); // Start 50 characters before the query hit or at the beginning of the summary
+        const end = Math.min(start + 100, text.length); // End 50 characters after the query hit or at the end of the summary
+        const content = text.substring(start, end);
+
+        return content;
+      }
+
+      return null;
+    };
+
+    if (this.title) {
+      const result = calculateMatchingQuery(this.title);
+
+      if (result) {
+        return result;
+      }
+    }
+
     if (this.summary) {
-      const summaryIndex = this.summary.toLowerCase().indexOf(query);
+      const result = calculateMatchingQuery(this.summary);
 
-      if (summaryIndex !== -1) {
-        const summaryStart = Math.max(0, summaryIndex - 50); // Start 50 characters before the query hit or at the beginning of the summary
-        const summaryEnd = Math.min(summaryStart + 100, this.summary.length); // End 50 characters after the query hit or at the end of the summary
-        const summary = this.summary.substring(summaryStart, summaryEnd);
-
-        return summary;
+      if (result) {
+        return result;
       }
     }
 
@@ -76,14 +94,12 @@ export class Post implements PQ.Post {
         for (const prop in obj) {
           if (obj.hasOwnProperty(prop)) {
             if (prop === key) {
-              const index = obj[prop].toLowerCase().indexOf(query);
+              if (typeof obj[prop] === "string") {
+                const result = calculateMatchingQuery(obj[prop]);
 
-              if (index !== -1) {
-                const start = Math.max(0, index - 50); // Start 50 characters before the query hit or at the beginning of the summary
-                const end = Math.min(start + 100, obj[prop].length); // End 50 characters after the query hit or at the end of the summary
-                const content = obj[prop].substring(start, end);
-
-                return content;
+                if (result) {
+                  return result;
+                }
               }
             }
 
