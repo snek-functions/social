@@ -300,17 +300,20 @@ export class PostRepository {
       let privacy: PQ.Privacy | undefined = PQ.Privacy.PUBLIC;
 
       if (
-        (context.req.headers["x-forwarded-user"] as string) === filters?.userId
+        context.req.headers["x-forwarded-user"] &&
+        context.req.headers["x-forwarded-user"] === filters?.userId
       ) {
         privacy = filters?.privacy || undefined;
       }
+
+      console.log("Privacy: ", privacy);
 
       return findManyCursorConnection(
         async (args: any) => {
           const qs = await this.prismaPost.findMany({
             where: {
               profileId: filters?.userId,
-              privacy: filters?.privacy,
+              privacy: privacy,
               language: filters?.language,
               OR: filters?.query
                 ? [
@@ -351,7 +354,7 @@ export class PostRepository {
           this.prismaPost.count({
             where: {
               profileId: filters?.userId,
-              privacy: filters?.privacy,
+              privacy: privacy,
               language: filters?.language,
               OR: filters?.query
                 ? [

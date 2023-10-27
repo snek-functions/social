@@ -397,7 +397,7 @@ export class Profile implements PQ.Profile {
               include: {
                 post: {
                   where: {
-                    privacy: PQ.$Enums.Privacy.PUBLIC,
+                    privacy,
                   },
                 },
                 follow: {
